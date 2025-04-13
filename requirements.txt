@@ -1,6 +1,10 @@
-pip install pdfplumber
-pip install google-generativeai
-pip install langchain
-pip install langchain-community
-pip install chromadb
-pip install tiktoken
+langchain
+langchain-google-genai
+langchain_community
+pypdf
+chromadb
+sentence-transformers
+google-generativeai
+pdfplumber
+streamlit
+pyngrok
