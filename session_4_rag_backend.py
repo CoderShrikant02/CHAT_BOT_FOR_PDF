@@ -18,7 +18,7 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGener
 from langchain_community.vectorstores import Chroma
 
 
-# ----------------------------------------
+# #----------------------------------------
 # Setup and Configuration
 # ----------------------------------------
 
