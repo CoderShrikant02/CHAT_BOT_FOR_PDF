@@ -19,6 +19,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
+import traceback
 
 
 # #----------------------------------------
@@ -91,6 +92,7 @@ def parse_pdf(pdf_path: str) -> Optional[str]:
         return text
     except Exception as e:
         print(f"Error parsing PDF: {e}")
+        traceback.print_exc()
         return None
 
 
@@ -111,6 +113,10 @@ def create_document_chunks(text: str, chunk_size: int = 1000, chunk_overlap: int
         List[str]: List of text chunks
     """
     try:
+        if not text or len(text.strip()) == 0:
+            print("Warning: Empty text provided to document chunker")
+            return []
+            
         # Initialize the text splitter
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
@@ -122,10 +128,14 @@ def create_document_chunks(text: str, chunk_size: int = 1000, chunk_overlap: int
         # Split the text into chunks
         chunks = text_splitter.split_text(text)
         
+        # Filter out any empty chunks
+        chunks = [chunk for chunk in chunks if chunk and len(chunk.strip()) > 0]
+        
         print(f"Document split into {len(chunks)} chunks")
         return chunks
     except Exception as e:
         print(f"Error creating document chunks: {e}")
+        traceback.print_exc()
         return []
 
 
@@ -153,6 +163,7 @@ def init_embedding_model(model_name: str = "models/text-embedding-004") -> Optio
         return embedding_model
     except Exception as e:
         print(f"Error initializing embedding model: {e}")
+        traceback.print_exc()
         return None
 
 
@@ -186,6 +197,7 @@ def embed_documents(embedding_model: GoogleGenerativeAIEmbeddings, text_chunks: 
             return False
     except Exception as e:
         print(f"Error testing embedding model: {e}")
+        traceback.print_exc()
         return False
 
 
@@ -202,39 +214,71 @@ def store_embeddings(
 ) -> Optional[Chroma]:
     """
     Function to store document embeddings in ChromaDB.
+    
+    Args:
+        embedding_model: The embedding model to use
+        text_chunks (List[str]): List of text chunks to embed and store
+        collection_name (str): Name of the collection in ChromaDB
+        persist_directory (str): Directory to persist the database
+        metadatas (Optional[List[Dict[str, str]]]): Metadata for each chunk
+        
+    Returns:
+        Optional[Chroma]: Vector store for retrieval, None if error
     """
     try:
+        print(f"Starting store_embeddings with {len(text_chunks)} chunks")
+        print(f"Persist directory: {persist_directory}")
+        
         # Create the persistence directory if it doesn't exist
         os.makedirs(persist_directory, exist_ok=True)
         
-        # Ensure we have text chunks to process
+        # Check if we have valid inputs
         if not text_chunks or len(text_chunks) == 0:
-            print("No text chunks provided to store_embeddings")
+            print("Error: No text chunks provided to store_embeddings")
             return None
             
-        # Make sure we have metadatas for each chunk if specified
+        # Make sure we have metadata for each chunk if specified
         if metadatas and len(metadatas) != len(text_chunks):
-            print(f"Metadata count {len(metadatas)} doesn't match chunk count {len(text_chunks)}")
-            metadatas = None
-        
-        print(f"Attempting to create vector store with {len(text_chunks)} chunks")
+            print(f"Warning: Mismatched metadata count ({len(metadatas)}) vs chunk count ({len(text_chunks)})")
+            print("Creating default metadata")
+            metadatas = [{"source": "document"} for _ in range(len(text_chunks))]
         
         # Create a vector store from the documents
-        vectorstore = Chroma.from_texts(
-            texts=text_chunks,
-            embedding=embedding_model,
-            collection_name=collection_name,
-            persist_directory=persist_directory,
-            metadatas=metadatas
-        )
-        
-        # Persist the vector store to disk
-        vectorstore.persist()
-        
-        print(f"Successfully stored {len(text_chunks)} document chunks in ChromaDB")
-        return vectorstore
+        print("Creating Chroma vector store...")
+        try:
+            vectorstore = Chroma.from_texts(
+                texts=text_chunks,
+                embedding=embedding_model,
+                collection_name=collection_name,
+                persist_directory=persist_directory,
+                metadatas=metadatas
+            )
+            
+            # Persist the vector store to disk
+            print("Persisting vector store to disk...")
+            vectorstore.persist()
+            
+            print(f"Successfully stored {len(text_chunks)} document chunks in ChromaDB")
+            return vectorstore
+            
+        except Exception as inner_e:
+            print(f"Error in Chroma.from_texts: {str(inner_e)}")
+            traceback.print_exc()
+            
+            # Try with in-memory approach as fallback
+            print("Attempting in-memory fallback...")
+            vectorstore = Chroma.from_texts(
+                texts=text_chunks,
+                embedding=embedding_model,
+                metadatas=metadatas
+            )
+            
+            print("Successfully created in-memory vector store")
+            return vectorstore
+            
     except Exception as e:
-        print(f"Detailed error storing embeddings: {str(e)}")
+        print(f"Error storing embeddings: {str(e)}")
+        traceback.print_exc()
         return None
 
 
@@ -253,19 +297,29 @@ def get_context_from_chunks(relevant_chunks, splitter="\n\n---\n\n"):
     Returns:
         str: Combined context from all chunks
     """
-    # Extract page_content from each chunk
-    chunk_contents = []
+    try:
+        # Handle case where no chunks are returned
+        if not relevant_chunks or len(relevant_chunks) == 0:
+            print("Warning: No relevant chunks found")
+            return "No relevant information found in the documents."
     
-    for i, chunk in enumerate(relevant_chunks):
-        if hasattr(chunk, 'page_content'):
-            # Add a chunk identifier to help with tracing which chunk provided what information
-            chunk_text = f"[Chunk {i+1}]: {chunk.page_content}"
-            chunk_contents.append(chunk_text)
-    
-    # Join all contents with the splitter
-    combined_context = splitter.join(chunk_contents)
-    
-    return combined_context
+        # Extract page_content from each chunk
+        chunk_contents = []
+        
+        for i, chunk in enumerate(relevant_chunks):
+            if hasattr(chunk, 'page_content'):
+                # Add a chunk identifier to help with tracing which chunk provided what information
+                chunk_text = f"[Chunk {i+1}]: {chunk.page_content}"
+                chunk_contents.append(chunk_text)
+        
+        # Join all contents with the splitter
+        combined_context = splitter.join(chunk_contents)
+        
+        return combined_context
+    except Exception as e:
+        print(f"Error combining chunks: {str(e)}")
+        traceback.print_exc()
+        return "Error retrieving context from documents."
 
 
 # ----------------------------------------
@@ -275,7 +329,7 @@ def get_context_from_chunks(relevant_chunks, splitter="\n\n---\n\n"):
 def query_with_full_context(
     query: str, 
     vectorstore: Chroma, 
-    model_name: str = "gemini-2.0-flash-thinking-exp-01-21", 
+    model_name: str = "gemini-1.5-pro",  # Updated to a more standard model name
     k: int = 3,
     temperature: float = 0.3
 ) -> Tuple[str, str, List[Any]]:
@@ -293,12 +347,24 @@ def query_with_full_context(
         tuple: (response, context, chunks)
     """
     try:
+        # Check if we have a valid query
+        if not query or len(query.strip()) == 0:
+            return "Please provide a valid question.", "", []
+            
+        print(f"Processing query: '{query}'")
+        
         # 1. Retrieve relevant chunks
-        retriever = vectorstore.as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": k}
-        )
-        relevant_chunks = retriever.get_relevant_documents(query)
+        try:
+            retriever = vectorstore.as_retriever(
+                search_type="similarity",
+                search_kwargs={"k": k}
+            )
+            relevant_chunks = retriever.get_relevant_documents(query)
+            print(f"Retrieved {len(relevant_chunks)} relevant chunks")
+        except Exception as retriever_error:
+            print(f"Error retrieving chunks: {str(retriever_error)}")
+            traceback.print_exc()
+            return (f"Error retrieving information: {str(retriever_error)}", "", [])
         
         # 2. Get combined context
         context = get_context_from_chunks(relevant_chunks)
@@ -317,18 +383,40 @@ Question: {query}
 Answer:"""
         
         # 4. Initialize Gemini model
-        llm = ChatGoogleGenerativeAI(
-            model=model_name,
-            temperature=temperature,
-            top_p=0.95,
-            max_output_tokens=1024
-        )
-        
-        # 5. Generate response
-        response = llm.invoke(prompt)
-        
-        # Return the response, context used, and original chunks for reference
-        return response.content, context, relevant_chunks
+        try:
+            llm = ChatGoogleGenerativeAI(
+                model=model_name,
+                temperature=temperature,
+                top_p=0.95,
+                max_output_tokens=1024
+            )
+            
+            # 5. Generate response
+            response = llm.invoke(prompt)
+            
+            # Return the response, context used, and original chunks for reference
+            return response.content, context, relevant_chunks
+        except Exception as model_error:
+            print(f"Error with language model: {str(model_error)}")
+            traceback.print_exc()
+            
+            # Try with a different model as fallback
+            try:
+                fallback_model = "gemini-1.0-pro"  # Fallback to older model
+                print(f"Trying fallback model: {fallback_model}")
+                llm_fallback = ChatGoogleGenerativeAI(
+                    model=fallback_model,
+                    temperature=temperature,
+                    max_output_tokens=1024
+                )
+                response = llm_fallback.invoke(prompt)
+                return response.content, context, relevant_chunks
+            except Exception as fallback_error:
+                print(f"Fallback model also failed: {str(fallback_error)}")
+                traceback.print_exc()
+                return (f"Error generating response. Technical details: {str(model_error)}", context, relevant_chunks)
+                
     except Exception as e:
         print(f"Error in query_with_full_context: {e}")
+        traceback.print_exc()
         return f"Error generating response: {str(e)}", "", []
