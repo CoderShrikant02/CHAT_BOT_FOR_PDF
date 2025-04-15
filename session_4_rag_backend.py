@@ -12,6 +12,7 @@ LangChain framework, and ChromaDB as vector database.
 import os
 import pdfplumber
 import google.generativeai as genai
+from typing import Optional, List, Dict, Tuple, Any
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import Chroma
