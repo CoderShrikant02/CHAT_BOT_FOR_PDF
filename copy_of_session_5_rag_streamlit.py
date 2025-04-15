@@ -21,7 +21,6 @@ First, let's install the necessary libraries.
 
 """Next, let's import all required libraries:"""
 
-streamlit
 
 import os
 import pdfplumber
