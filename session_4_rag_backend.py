@@ -202,18 +202,23 @@ def store_embeddings(
 ) -> Optional[Chroma]:
     """
     Function to store document embeddings in ChromaDB.
-    
-    Args:
-        embedding_model: The embedding model to use
-        text_chunks (List[str]): List of text chunks to embed and store
-        collection_name (str): Name of the collection in ChromaDB
-        persist_directory (str): Directory to persist the database
-        metadatas (Optional[List[Dict[str, str]]]): Metadata for each chunk
-        
-    Returns:
-        Optional[Chroma]: Vector store for retrieval, None if error
     """
     try:
+        # Create the persistence directory if it doesn't exist
+        os.makedirs(persist_directory, exist_ok=True)
+        
+        # Ensure we have text chunks to process
+        if not text_chunks or len(text_chunks) == 0:
+            print("No text chunks provided to store_embeddings")
+            return None
+            
+        # Make sure we have metadatas for each chunk if specified
+        if metadatas and len(metadatas) != len(text_chunks):
+            print(f"Metadata count {len(metadatas)} doesn't match chunk count {len(text_chunks)}")
+            metadatas = None
+        
+        print(f"Attempting to create vector store with {len(text_chunks)} chunks")
+        
         # Create a vector store from the documents
         vectorstore = Chroma.from_texts(
             texts=text_chunks,
@@ -229,7 +234,7 @@ def store_embeddings(
         print(f"Successfully stored {len(text_chunks)} document chunks in ChromaDB")
         return vectorstore
     except Exception as e:
-        print(f"Error storing embeddings: {e}")
+        print(f"Detailed error storing embeddings: {str(e)}")
         return None
 
 
